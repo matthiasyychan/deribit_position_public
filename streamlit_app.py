@@ -371,7 +371,7 @@ else:
         st.metric("Total value (HKD)", f"HKD ${total_value_hkd:,.0f}")
 
     # Create tabs for combined view and individual sub-accounts
-    tab_names = ["Combined View"] + [alias for alias in sub_accounts.keys()]
+    tab_names = ["All Positions"] + [alias for alias in sub_accounts.keys()]
     tabs = st.tabs(tab_names)
 
     # Combined view tab
