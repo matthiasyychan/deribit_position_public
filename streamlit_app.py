@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import re
 from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime, timezone
@@ -18,6 +19,8 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
     # Debug: Show in sidebar if openpyxl is NOT available
+if HAS_OPENPYXL:
+    from openpyxl.utils import get_column_letter
 
 # -----------------------------
 # Config
@@ -301,6 +304,45 @@ def create_excel_download(df: pd.DataFrame, filename: str) -> tuple[bytes, str]:
     buffer.seek(0)
     return buffer.getvalue(), f"{filename}.xlsx"
 
+def _sanitize_sheet_name(name: str) -> str:
+    # Excel sheet name rules: max 31 chars and no []:*?/\
+    cleaned = re.sub(r"[\[\]:*?/\\]", "_", name).strip()
+    if not cleaned:
+        cleaned = "Sheet"
+    return cleaned[:31]
+
+def _unique_sheet_name(base: str, existing: set[str]) -> str:
+    if base not in existing:
+        return base
+    i = 1
+    while True:
+        suffix = f"_{i}"
+        max_len = 31 - len(suffix)
+        trimmed = base[:max_len] if max_len > 0 else "Sheet"
+        candidate = f"{trimmed}{suffix}"
+        if candidate not in existing:
+            return candidate
+        i += 1
+
+def create_excel_workbook(dataframes: Dict[str, pd.DataFrame], filename: str) -> tuple[bytes, str]:
+    """Create a multi-sheet Excel file for download"""
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        used_names: set[str] = set()
+        for sheet_title, frame in dataframes.items():
+            base = _sanitize_sheet_name(str(sheet_title))
+            sheet_name = _unique_sheet_name(base, used_names)
+            used_names.add(sheet_name)
+            frame.to_excel(writer, sheet_name=sheet_name, index=False)
+            worksheet = writer.sheets[sheet_name]
+            # Auto-adjust column widths based on values and header
+            for col_idx, col_name in enumerate(frame.columns, start=1):
+                series = frame[col_name].astype(str)
+                max_len = max([len(str(col_name))] + [len(v) for v in series.tolist()])
+                worksheet.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 60)
+    buffer.seek(0)
+    return buffer.getvalue(), f"{filename}.xlsx"
+
 def create_json_download(data: dict, filename: str) -> tuple[bytes, str]:
     """Create JSON file for download"""
     json_str = json.dumps(clean_for_json(data), indent=2, default=str)
@@ -318,7 +360,8 @@ with st.sidebar:
     currency = st.selectbox("Currency", ["any", "BTC", "ETH"], index=0)
     kind = st.selectbox("Kind", ["(all)", "option", "future"], index=0)
     kind_val = None if kind == "(all)" else kind
-    refresh = st.button("Refresh now")
+    refresh = st.button("Refresh")
+    download_slot = st.empty()
     
     # Debug info
     st.markdown("---")
@@ -359,6 +402,25 @@ if df.empty:
     if not errors:
         st.success("✅ API connection successful - no open positions.")
 else:
+    if HAS_OPENPYXL:
+        workbook_frames = {"All Positions": df}
+        for alias, sub_df in sub_accounts.items():
+            workbook_frames[alias] = sub_df
+        date_stamp = datetime.now().strftime("%Y%m%d")
+        excel_bytes, excel_filename = create_excel_workbook(
+            workbook_frames, f"deribit_positions_{date_stamp}"
+        )
+        with download_slot.container():
+            st.download_button(
+                "📥 Download Excel",
+                excel_bytes,
+                file_name=excel_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+    else:
+        with download_slot.container():
+            st.info("Excel workbook export requires openpyxl.")
+
     # Summary metrics
     col1, col2, col3 = st.columns(3)
     with col1:
