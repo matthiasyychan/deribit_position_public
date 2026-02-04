@@ -1,0 +1,8 @@
+{
+  "client_id": "BFtYeDHm",
+  "client_secret": "TQAN_0UCcc_beJ3lelpATIAFHv85UAg9QAQNb5OzDX0",
+  "subs": [
+    { "alias": "Account_main",   "id": 77331 },
+    { "alias": "Account_ETH", "id": 77332 }
+  ]
+}
